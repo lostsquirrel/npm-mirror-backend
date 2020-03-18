@@ -1,6 +1,6 @@
 SHELL=/bin/bash
 
-VERSION=0.1.1
+VERSION=1.1.1
 
 IMAGE_TAG=${VERSION}
 
