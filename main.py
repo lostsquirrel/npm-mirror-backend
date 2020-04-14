@@ -19,7 +19,7 @@ pkg_base_path = Path("/data/npm/_pkg")
 pattern = r"-(\d+\.){2}\d+.*tgz$"
 re_suffix = re.compile(pattern)
 
-logging.basicConfig(format="%(processName)s %(thread)s %(levelname)s %(name)s %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(processName)s %(thread)s %(levelname)s %(name)s %(message)s")
 
 log = logging.getLogger(__name__)
 
