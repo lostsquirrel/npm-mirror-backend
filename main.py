@@ -11,6 +11,7 @@ import tornado.ioloop
 import tornado.web
 from tornado import httputil
 from tornado.httpclient import AsyncHTTPClient
+from tornado.httpserver import HTTPServer
 
 pkg_base_npm = "https://registry.npmjs.org"
 pkg_base_custom = os.getenv("ORIGIN_SOURCES", "https://registry.npm.taobao.org")
@@ -100,7 +101,7 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", "8888"))
     app = make_app()
     app.listen(port)
-    # server = HTTPServer(app)
-    # server.bind(int(port))
-    # server.start(0)
+    server = HTTPServer(app)
+    server.bind(int(port))
+    server.start(0)
     tornado.ioloop.IOLoop.current().start()
