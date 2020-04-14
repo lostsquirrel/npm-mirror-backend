@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,11 @@ pkg_base_path = Path("/data/npm/_pkg")
 pattern = r"-(\d+\.){2}\d+.*tgz$"
 re_suffix = re.compile(pattern)
 
+logging.basicConfig(format="%(processName)s %(thread)s %(levelname)s %(name)s %(message)s")
+
+log = logging.getLogger(__name__)
+
+
 class MataHandler(tornado.web.RequestHandler):
     def __init__(self, application: "Application", request: httputil.HTTPServerRequest, **kwargs: Any):
         super().__init__(application, request, **kwargs)
@@ -25,7 +31,7 @@ class MataHandler(tornado.web.RequestHandler):
         self.db = couch['registry']
 
     def get(self, meta_id):
-        print("query meta {}".format(meta_id))
+        log.info("query meta {}".format(meta_id))
 
         data = self.db[meta_id]
 
@@ -51,7 +57,7 @@ class PackageHandler(tornado.web.RequestHandler):
                 req.set_header('Content-Type', 'application/octet-stream')
                 await req.finish()
 
-        print("fetch package {}".format(pkg_url))
+        log.info("fetch package {}".format(pkg_url))
 
         pkg_path = pkg_base_path / pkg_url
         if not pkg_path.parent.exists():
@@ -62,29 +68,27 @@ class PackageHandler(tornado.web.RequestHandler):
         pkg_url_custom = None
         try:
 
-            results = re.search(re_suffix,pkg_url)
+            results = re.search(re_suffix, pkg_url)
             if results is None:
                 raise Exception("version not recognised")
             pkg_id = pkg_url.split("/-/")[0]
             pkg_url_custom = "{}/{}/download/{}{}".format(pkg_base_custom, pkg_id, pkg_id, results.group())
             r = await http_client.fetch(pkg_url_custom)
         except Exception as e:
-            print("fetch {} failed: {}".format(pkg_url_custom, e))
+            log.warning("fetch {} failed: {}".format(pkg_url_custom, e))
             pkg_url_npm = "{}/{}".format(pkg_base_npm, pkg_url)
             try:
                 r = await http_client.fetch(pkg_url_npm, request_timeout=300.0)
             except Exception as e:
-                print("fetch {} failed: {}".format(pkg_url_npm, e))
+                log.error("fetch {} failed: {}".format(pkg_url_npm, e))
             else:
                 await download_success(self, str(pkg_path), r.body)
         else:
             await download_success(self, str(pkg_path), r.body)
 
 
-
-
 def make_app():
-    AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient")
+    AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient", max_clients=20)
 
     return tornado.web.Application([
         (r"/_registry/(.*)", MataHandler),
