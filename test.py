@@ -29,6 +29,8 @@ class Test(unittest.TestCase):
             # Other errors are possible, such as IOError.
             print("Error: " + str(e))
 
+    def test_fetch(self):
+        http_client = httpclient.HTTPClient()
         try:
             r = http_client.fetch(
                 "https://registry.npm.taobao.org/@types/babel__template/-/babel__template-7.0.2.tgz")
@@ -45,6 +47,17 @@ class Test(unittest.TestCase):
             print("Error: " + str(e))
 
 
+    def test_async_fetch(self):
+        async def f():
+            http_client = AsyncHTTPClient()
+            try:
+                response = await http_client.fetch("https://www.baidu.com")
+            except Exception as e:
+                print("Error: %s" % e)
+            else:
+                print(response.body)
+        x = await f()
+        print(x)
     def test_split(self):
         "\.\d+\.\d+\.tgz$"
         pattern = r"-(\d+\.){2}\d+.*tgz$"

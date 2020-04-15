@@ -1,17 +1,17 @@
 import json
+import logging
 import os
 import re
-import logging
 from pathlib import Path
 from typing import Any
 
-from aiofile import AIOFile
 import couchdb
 import tornado.ioloop
 import tornado.web
+from aiofile import AIOFile
 from tornado import httputil
 from tornado.httpclient import AsyncHTTPClient
-from tornado.httpserver import HTTPServer
+from tornado.simple_httpclient import SimpleAsyncHTTPClient
 
 pkg_base_npm = "https://registry.npmjs.org"
 pkg_base_custom = os.getenv("ORIGIN_SOURCES", "https://registry.npm.taobao.org")
@@ -20,7 +20,7 @@ pkg_base_path = Path("/data/npm/_pkg")
 pattern = r"-(\d+\.){2}\d+.*tgz$"
 re_suffix = re.compile(pattern)
 
-logging.basicConfig(level=logging.INFO, format="%(processName)s %(thread)s %(levelname)s %(name)s %(message)s")
+logging.basicConfig(level=logging.DEBUG, format="%(processName)s %(thread)s %(levelname)s %(name)s %(message)s")
 
 log = logging.getLogger(__name__)
 
@@ -88,9 +88,23 @@ class PackageHandler(tornado.web.RequestHandler):
             await download_success(self, str(pkg_path), r.body)
 
 
-def make_app():
-    AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient", max_clients=20)
+class NoQueueTimeoutHTTPClient(SimpleAsyncHTTPClient):
+    def fetch_impl(self, request, callback):
+        key = object()
 
+        self.queue.append((key, request, callback))
+        self.waiting[key] = (request, callback, None)
+
+        self._process_queue()
+
+        if self.queue:
+            log.debug("max_clients limit reached, request queued. %d active, %d queued requests." % (
+            len(self.active), len(self.queue)))
+
+
+def make_app():
+    # AsyncHTTPClient.configure("tornado.curl_httpclient.CurlAsyncHTTPClient", max_clients=50)
+    AsyncHTTPClient.configure(NoQueueTimeoutHTTPClient, max_clients=20)
     return tornado.web.Application([
         (r"/_registry/(.*)", MataHandler),
         (r"/_pkg/(.*)", PackageHandler),
@@ -101,7 +115,4 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", "8888"))
     app = make_app()
     app.listen(port)
-    server = HTTPServer(app)
-    server.bind(int(port))
-    server.start(0)
     tornado.ioloop.IOLoop.current().start()
