@@ -67,13 +67,12 @@ class MataHandler(tornado.web.RequestHandler):
                     #             fetch new index,and save to redis, update etag, set flag
                     r = await http_client.fetch(index_url)
                     if http_ok(r.code):
-                        print(r.body.decode())
                         data = json.loads(r.body.decode())
                         for k, v in data["versions"].items():
                             old_pkg_url = v["dist"]["tarball"]
                             prefix = old_pkg_url.replace(pkg_base_npm, "")[1:]
                             v["dist"]["tarball"] = "{}/_pkg/{}".format(mirror_address, prefix)
-                            # print(k, v["name"], v["dist"]["tarball"])
+                    
                         self.db.set(meta_id, json.dumps(data))
                         self.db.set(get_update_key(meta_id), r.headers.get('etag'))
                         self.db.set(get_flag_key(meta_id), 1, 60 * 60 * 24)
