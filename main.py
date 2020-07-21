@@ -5,9 +5,9 @@ import re
 from pathlib import Path
 from typing import Any
 
-import couchdb
 import tornado.ioloop
 import tornado.web
+import redis
 from aiofile import AIOFile
 from tornado import httputil
 from tornado.httpclient import AsyncHTTPClient
@@ -16,34 +16,75 @@ from tornado.simple_httpclient import SimpleAsyncHTTPClient
 pkg_base_npm = "https://registry.npmjs.org"
 pkg_base_custom = os.getenv("ORIGIN_SOURCES", "https://registry.npm.taobao.org")
 mirror_address = os.getenv("MIRROR_ADDRESS", "https://npm.lisong.pub")
+password = os.getenv("PASSWORD", "yg123456")
 pkg_base_path = Path("/data/npm/_pkg")
 pattern = r"-(\d+\.){2}\d+.*tgz$"
 re_suffix = re.compile(pattern)
+cache_flag_key = "FLAG:{}"
+cache_update_key = "ETAG:{}"
 
 logging.basicConfig(level=logging.DEBUG, format="%(processName)s %(thread)s %(levelname)s %(name)s %(message)s")
 
 log = logging.getLogger(__name__)
 
 
+def get_flag_key(meta_id: str) -> str:
+    return cache_flag_key.format(meta_id)
+
+
+def get_update_key(meta_id: str) -> str:
+    return cache_update_key.format(meta_id)
+
+
+def get_index_url(meta_id: str) -> str:
+    return "{}/{}".format(pkg_base_npm, meta_id)
+
+
+def http_ok(code: int) -> bool:
+    return 200 <= code < 400
+
+
 class MataHandler(tornado.web.RequestHandler):
     def __init__(self, application: "Application", request: httputil.HTTPServerRequest, **kwargs: Any):
         super().__init__(application, request, **kwargs)
-        couch = couchdb.Server('http://192.168.10.196:5984/')
-        self.db = couch['registry']
+        r = redis.Redis(host='localhost', port=6379, db=0, password=password)
+        self.db = r
 
-    def get(self, meta_id):
+    def is_index_update(self, meta_id, current_etag):
+        return self.db.get(get_update_key(meta_id)) != current_etag
+
+    async def get(self, meta_id):
         log.info("query meta {}".format(meta_id))
 
-        data = self.db[meta_id]
-
-        for k, v in data["versions"].items():
-            old_pkg_url = v["dist"]["tarball"]
-            prefix = old_pkg_url.replace(pkg_base_npm, "")[1:]
-            v["dist"]["tarball"] = "{}/_pkg/{}".format(mirror_address, prefix)
-            # print(k, v["name"], v["dist"]["tarball"])
+        if not self.db.exists(get_flag_key(meta_id)):
+            http_client = AsyncHTTPClient(defaults=dict(request_timeout=180))
+            index_url = get_index_url(meta_id)
+            log.debug(index_url)
+            r = await http_client.fetch(index_url, method="HEAD", request_timeout=300.0)
+            if http_ok(r.code):
+                etag = r.headers.get('etag')
+                if self.is_index_update(meta_id, etag):
+                    #             fetch new index,and save to redis, update etag, set flag
+                    r = await http_client.fetch(index_url)
+                    if http_ok(r.code):
+                        print(r.body.decode())
+                        data = json.loads(r.body.decode())
+                        for k, v in data["versions"].items():
+                            old_pkg_url = v["dist"]["tarball"]
+                            prefix = old_pkg_url.replace(pkg_base_npm, "")[1:]
+                            v["dist"]["tarball"] = "{}/_pkg/{}".format(mirror_address, prefix)
+                            # print(k, v["name"], v["dist"]["tarball"])
+                        self.db.set(meta_id, json.dumps(data))
+                        self.db.set(get_update_key(meta_id), r.headers.get('etag'))
+                        self.db.set(get_flag_key(meta_id), 1, 60 * 60 * 24)
+                    else:
+                        raise Exception("fetch GET {} failed".format(index_url))
+            else:
+                raise Exception("fetch HEAD {} failed".format(index_url))
+        data = self.db.get(meta_id)
         self.set_header('Content-Type', 'application/json;charset=UTF-8')
-        self.write(json.dumps(data))
-        self.finish()
+        self.write(data)
+        await self.finish()
 
 
 class PackageHandler(tornado.web.RequestHandler):
@@ -71,7 +112,7 @@ class PackageHandler(tornado.web.RequestHandler):
 
             results = re.search(re_suffix, pkg_url)
             if results is None:
-                raise Exception("version not recognised")
+                raise Exception("version not recognised {}".format(pkg_url))
             pkg_id = pkg_url.split("/-/")[0]
             pkg_url_custom = "{}/{}/download/{}{}".format(pkg_base_custom, pkg_id, pkg_id, results.group())
             r = await http_client.fetch(pkg_url_custom)
@@ -86,6 +127,8 @@ class PackageHandler(tornado.web.RequestHandler):
                 await download_success(self, str(pkg_path), r.body)
         else:
             await download_success(self, str(pkg_path), r.body)
+        finally:
+            http_client.close()
 
 
 class NoQueueTimeoutHTTPClient(SimpleAsyncHTTPClient):
@@ -99,7 +142,7 @@ class NoQueueTimeoutHTTPClient(SimpleAsyncHTTPClient):
 
         if self.queue:
             log.debug("max_clients limit reached, request queued. %d active, %d queued requests." % (
-            len(self.active), len(self.queue)))
+                len(self.active), len(self.queue)))
 
 
 def make_app():
