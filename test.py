@@ -2,6 +2,7 @@ import re
 import time
 import unittest
 
+import requests
 from tornado import httpclient
 from tornado.httpclient import AsyncHTTPClient
 
@@ -15,19 +16,46 @@ class Test(unittest.TestCase):
         http_client = httpclient.HTTPClient()
 
         try:
+            url = "https://registry.npm.taobao.org/@types/react"
             r = http_client.fetch(
-                "https://registry.npm.taobao.org/@types/babel__template/-/babel__template-7.0.2.tgz", method="HEAD")
+                url, method="HEAD")
             print(r.code, r.body)
         except httpclient.HTTPError as e:
             # HTTPError is raised for non-200 responses; the response
             # can be found in e.response.
             print("HTTP Error: " + str(e))
-            print(dir(e))
+            # print(dir(e))
             print(e.code)
             print(type(e.code))
         except Exception as e:
             # Other errors are possible, such as IOError.
             print("Error: " + str(e))
+
+    def test_fetchx(self):
+        url = "https://registry.npmjs.org/@types/react"
+        # r = requests.get(url)
+        # print(r)
+        http_client = httpclient.HTTPClient()
+
+        try:
+            r = http_client.fetch(
+                url,
+                # proxy_host="127.0.0.1",
+                # proxy_port=3128
+            )
+            print(r.code, r.body)
+        except httpclient.HTTPError as e:
+            # HTTPError is raised for non-200 responses; the response
+            # can be found in e.response.
+            print("HTTP Error: " + str(e))
+            # print(dir(e))
+            print(e.code)
+            print(type(e.code))
+        except Exception as e:
+            # Other errors are possible, such as IOError.
+            print("Error: " + str(e))
+        finally:
+            http_client.close()
 
     def test_fetch(self):
         http_client = httpclient.HTTPClient()
@@ -46,18 +74,18 @@ class Test(unittest.TestCase):
             # Other errors are possible, such as IOError.
             print("Error: " + str(e))
 
+    # def test_async_fetch(self):
+    #     async def f():
+    #         http_client = AsyncHTTPClient()
+    #         try:
+    #             response = await http_client.fetch("https://www.baidu.com", method="HEAD")
+    #         except Exception as e:
+    #             print("Error: %s" % e)
+    #         else:
+    #             print(response.body)
+    #     x = await f()
+    #     print(x)
 
-    def test_async_fetch(self):
-        async def f():
-            http_client = AsyncHTTPClient()
-            try:
-                response = await http_client.fetch("https://www.baidu.com")
-            except Exception as e:
-                print("Error: %s" % e)
-            else:
-                print(response.body)
-        x = await f()
-        print(x)
     def test_split(self):
         "\.\d+\.\d+\.tgz$"
         pattern = r"-(\d+\.){2}\d+.*tgz$"
