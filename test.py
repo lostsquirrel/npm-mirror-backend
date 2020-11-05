@@ -94,3 +94,12 @@ class Test(unittest.TestCase):
         results = re.search(re_suffix, "cheerio/-/cheerio-1.0.0-rc.3.tgz")
         if results is not None:
             print(results.group())
+
+    def test_pkg(self):
+        import redis
+        redis_conn = redis.Redis(host='192.168.10.196', port=6379, db=0, password="yg123456")
+        for key in redis_conn.keys("FLAG:*"):
+            meta_id = key.decode().split(":")[1]
+            print(meta_id)
+            redis_conn.sadd("NPM:PKG", meta_id)
+            print(redis_conn.scard("NPM:PKG"))
