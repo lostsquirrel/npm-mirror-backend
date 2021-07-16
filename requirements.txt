@@ -1,6 +1,6 @@
 tornado==6.0.3
-pycurl==7.43.0.5
+#pycurl==7.43.0.5
 #couchdb==1.2
 aiofile==1.5.2
 redis==3.5.3
-request
+requests

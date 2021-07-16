@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+from abc import ABC
 from pathlib import Path
 from typing import Any
 
@@ -12,10 +13,12 @@ from aiofile import AIOFile
 from tornado import httputil
 from tornado.httpclient import AsyncHTTPClient
 from tornado.simple_httpclient import SimpleAsyncHTTPClient, HTTPTimeoutError
+from tornado.web import Application
 
 pkg_base_npm = "https://registry.npmjs.org"
 pkg_base_custom = os.getenv("ORIGIN_SOURCES", "https://registry.npm.taobao.org")
 mirror_address = os.getenv("MIRROR_ADDRESS", "https://npm.lisong.pub")
+redis_host = os.getenv("REDIS_HOST", "localhost")
 password = os.getenv("PASSWORD", "yg123456")
 pkg_base_path = Path("/data/npm/_pkg")
 pattern = r"-(\d+\.){2}\d+.*tgz$"
@@ -27,6 +30,14 @@ cache_id_key = "NPM:PKG"
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
 log = logging.getLogger(__name__)
+
+proxy_host = os.getenv("PROXY_HOST", None)
+proxy_port = os.getenv("PROXY_PORT")
+
+config = dict()
+if proxy_host is not None:
+    config['proxy_host'] = proxy_host
+    config['proxy_port'] = int(proxy_port)
 
 
 def get_flag_key(meta_id: str) -> str:
@@ -65,48 +76,67 @@ async def update_index(meta_id):
         raise Exception("fetch GET {} failed".format(index_url))
 
 
+def is_index_update(meta_id, current_etag):
+    cached_etag = None
+    if redis_conn.exists(get_update_key(meta_id)):
+        cached_etag = redis_conn.get(get_update_key(meta_id)).decode()
+    log.debug("etag %s, %s", cached_etag, current_etag)
+    return cached_etag != current_etag
+
+
 async def query_index(index_url):
+    http_client = AsyncHTTPClient(defaults=dict(request_timeout=30, connect_timeout=10))
     try:
-        http_client = AsyncHTTPClient(defaults=dict(request_timeout=30, connect_timeout=10))
-        r = await http_client.fetch(index_url)
+        r = await http_client.fetch(index_url, **config)
         return r
     except HTTPTimeoutError as e:
         log.warning("update failed, retry. %s", e)
         return await query_index(index_url)
+    finally:
+        if http_client is not None:
+            http_client.close()
 
 
-class MataHandler(tornado.web.RequestHandler):
+async def check_and_update(meta_id):
+    http_client = AsyncHTTPClient(defaults=dict(request_timeout=10, connect_timeout=10))
+    index_url = get_index_url(meta_id)
+    log.debug(index_url)
+    try:
+        r = await http_client.fetch(index_url, method="HEAD")
+        if http_ok(r.code):
+            etag = r.headers.get('etag')
+            if is_index_update(meta_id, etag):
+                #             fetch new index,and save to redis, update etag, set flag
+                await update_index(meta_id)
+
+        else:
+            raise Exception("fetch HEAD {} failed".format(index_url))
+    except Exception as e:
+        log.warning("update failed, retry. %s", e)
+    finally:
+        if http_client is not None:
+            http_client.close()
+
+
+class MataHandler(tornado.web.RequestHandler, ABC):
     def __init__(self, application: "Application", request: httputil.HTTPServerRequest, **kwargs: Any):
         super().__init__(application, request, **kwargs)
         self.db = redis_conn
-
-    def is_index_update(self, meta_id, current_etag):
-        return self.db.get(get_update_key(meta_id)) != current_etag
 
     async def get(self, meta_id):
         log.info("query meta {}".format(meta_id))
 
         if not self.db.exists(get_flag_key(meta_id)):
             self.db.sadd(cache_id_key, meta_id)
-            http_client = AsyncHTTPClient(defaults=dict(request_timeout=3600, connect_timeout=300))
-            index_url = get_index_url(meta_id)
-            log.debug(index_url)
-            r = await http_client.fetch(index_url, method="HEAD")
-            if http_ok(r.code):
-                etag = r.headers.get('etag')
-                if self.is_index_update(meta_id, etag):
-                    #             fetch new index,and save to redis, update etag, set flag
-                    await update_index(meta_id)
 
-            else:
-                raise Exception("fetch HEAD {} failed".format(index_url))
+            await check_and_update(meta_id)
         data = self.db.get(meta_id)
         self.set_header('Content-Type', 'application/json;charset=UTF-8')
         self.write(data)
         await self.finish()
 
 
-class MataUpdateHandler(tornado.web.RequestHandler):
+class MataUpdateHandler(tornado.web.RequestHandler, ABC):
     def __init__(self, application: "Application", request: httputil.HTTPServerRequest, **kwargs: Any):
         super().__init__(application, request, **kwargs)
 
@@ -116,11 +146,11 @@ class MataUpdateHandler(tornado.web.RequestHandler):
             # update all meta info
             meta_list = redis_conn.smembers(cache_id_key)
             for meta_id in meta_list:
-                await update_index(meta_id.decode())
+                await check_and_update(meta_id.decode())
             self.write("update {} packages\n".format(len(meta_list)))
         else:
             # force update this meta
-            await update_index(meta_id)
+            await check_and_update(meta_id)
             if not redis_conn.sismember(cache_id_key, meta_id):
                 redis_conn.sadd(cache_id_key, meta_id)
             self.write("update {}".format(meta_id))
@@ -128,7 +158,7 @@ class MataUpdateHandler(tornado.web.RequestHandler):
         await self.finish()
 
 
-class PackageHandler(tornado.web.RequestHandler):
+class PackageHandler(tornado.web.RequestHandler, ABC):
 
     async def get(self, pkg_url):
 
@@ -197,7 +227,7 @@ def make_app():
 
 
 if __name__ == "__main__":
-    redis_conn = redis.Redis(host='localhost', port=6379, db=0, password=password)
+    redis_conn = redis.Redis(host=redis_host, port=6379, db=0, password=password)
     port = int(os.getenv("PORT", "8888"))
     app = make_app()
     app.listen(port)
