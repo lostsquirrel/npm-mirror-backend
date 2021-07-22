@@ -1,4 +1,4 @@
-FROM registry.lisong.pub:5000/lisong/npm-mirror-backend-base:3.2.0
+FROM registry.lisong.pub:28500/lisong/npm-mirror-backend-base:3.3.0
 
 ADD . /app/
 VOLUME /data

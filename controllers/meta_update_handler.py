@@ -6,7 +6,6 @@ from tornado import httputil
 from tornado.web import Application
 
 from utils import check_and_update, etag_cache
-from settings import cache_id_key
 
 
 class MetaUpdateHandler(tornado.web.RequestHandler, ABC):
@@ -18,11 +17,14 @@ class MetaUpdateHandler(tornado.web.RequestHandler, ABC):
         if meta_id is None:
             # update all meta info
             meta_list = etag_cache.keys()
-            for meta_id in meta_list:
-                await check_and_update(meta_id)
-            self.write("update {} packages\n".format(len(meta_list)))
+            if meta_list is None:
+                self.write("no package stored")
+            else:
+                for meta_id in meta_list:
+                    check_and_update(meta_id)
+                self.write("update {} packages\n".format(len(meta_list)))
         else:
-            await check_and_update(meta_id)
+            check_and_update(meta_id)
             self.write("updated {}".format(meta_id))
 
         await self.finish()

@@ -23,7 +23,7 @@ class MetaHandler(tornado.web.RequestHandler, ABC):
 
         meta_file = meta_base_path / meta_id
         if meta_file.exists():
-            data = await check_and_update(meta_id)
+            data = check_and_update(meta_id)
         else:
-            data = await update_index(meta_id)
+            data = update_index(meta_id)
         await send_content(self, json.dumps(data).encode())

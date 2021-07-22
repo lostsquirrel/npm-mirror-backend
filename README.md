@@ -2,6 +2,11 @@
 
 ## change log
 
+### v2.1.0 (20210721)
+
+1. 使用 requests 代替 tornado http client 提高稳定性
+2. 通过后台任务进行文件保存
+
 ### v2.0.0 (20210719)
 
 1. 修改镜像缓存策略，使用 nginx 文件缓存，放弃使用 redis

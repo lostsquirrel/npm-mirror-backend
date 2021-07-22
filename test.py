@@ -1,3 +1,4 @@
+import json
 import re
 import time
 import unittest
@@ -5,6 +6,8 @@ import unittest
 import requests
 from tornado import httpclient
 from tornado.httpclient import AsyncHTTPClient
+
+from main import cache_id_key
 
 
 class Test(unittest.TestCase):
@@ -103,3 +106,22 @@ class Test(unittest.TestCase):
             print(meta_id)
             redis_conn.sadd("NPM:PKG", meta_id)
             print(redis_conn.scard("NPM:PKG"))
+
+    def test_migrate_data(self):
+        import redis
+        redis_conn = redis.Redis(host='192.168.10.196', port=6379, db=0, password="yg123456")
+        meta_list = redis_conn.smembers(cache_id_key)
+        cache = dict()
+        with open("/tmp/data/npm/etag") as fh:
+            content = fh.read()
+            if len(content) > 0:
+                cache.update(json.loads(content))
+        for _meta_id in meta_list:
+            meta_id = _meta_id.decode()
+            print(meta_id)
+            if cache.get(meta_id) is None:
+                cache[meta_id] = ""
+                print("add {}".format(meta_id))
+
+        with open("/tmp/data/npm/etag", 'w') as fh:
+            fh.write(json.dumps(cache))
