@@ -2,6 +2,10 @@
 
 ## change log
 
+### v2.1.1 (20210914)
+
+1. 修改路径
+
 ### v2.1.0 (20210721)
 
 1. 使用 requests 代替 tornado http client 提高稳定性

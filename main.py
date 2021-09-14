@@ -19,7 +19,7 @@ def make_app():
     load_etag_cache()
     threading.Thread(target=file_save_worker, daemon=True).start()
     return tornado.web.Application([
-        (r"/_registry/(.*)", MetaHandler),
+        (r"/(.*)", MetaHandler),
         (r"/_pkg/(.*)", PackageHandler),
         (r"/meta/update", MetaUpdateHandler),
     ])
